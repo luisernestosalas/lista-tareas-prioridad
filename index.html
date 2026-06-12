@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lista de Tareas con Prioridad</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; background: white; border-radius: 10px; padding: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { text-align: center; color: #333; margin-bottom: 30px; }
+        .form-container { background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 30px; }
+        .form-row { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
+        input, select, button { padding: 12px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; }
+        input[type="text"] { flex: 1; min-width: 200px; }
+        select { min-width: 120px; }
+        button { background: #007bff; color: white; border: none; cursor: pointer; min-width: 100px; }
+        button:hover { background: #0056b3; }
+        .filters { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
+        .filters label { font-weight: bold; }
+        .task-list { display: flex; flex-direction: column; gap: 10px; }
+        .task-item { background: white; border: 1px solid #ddd; border-radius: 8px; padding: 15px; display: flex; align-items: center; gap: 15px; }
+        .task-item.completed { opacity: 0.6; }
+        .task-item.completed .task-text { text-decoration: line-through; }
+        .priority-badge { padding: 4px 12px; border-radius: 20px; color: white; font-size: 12px; font-weight: bold; min-width: 60px; text-align: center; }
+        .priority-alta { background: #dc3545; }
+        .priority-media { background: #ffc107; color: #333; }
+        .priority-baja { background: #28a745; }
+        .task-text { flex: 1; font-size: 16px; }
+        .task-actions { display: flex; gap: 8px; }
+        .btn-sm { padding: 6px 12px; font-size: 12px; border: none; border-radius: 4px; cursor: pointer; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-sm:hover { opacity: 0.8; }
+        .stats { display: flex; justify-content: space-around; margin-bottom: 20px; }
+        .stat-item { text-align: center; padding: 15px; background: #f8f9fa; border-radius: 8px; }
+        .stat-number { font-size: 24px; font-weight: bold; color: #007bff; }
+        .stat-label { font-size: 12px; color: #666; margin-top: 5px; }
+        @media (max-width: 600px) {
+            .form-row { flex-direction: column; }
+            input[type="text"], select, button { width: 100%; }
+            .filters { flex-direction: column; align-items: stretch; }
+            .task-item { flex-direction: column; align-items: stretch; text-align: left; }
+            .task-actions { justify-content: center; margin-top: 10px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📝 Lista de Tareas con Prioridad</h1>
+        
+        <div class="stats">
+            <div class="stat-item">
+                <div class="stat-number" id="totalTasks">0</div>
+                <div class="stat-label">Total</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="pendingTasks">0</div>
+                <div class="stat-label">Pendientes</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="completedTasks">0</div>
+                <div class="stat-label">Completadas</div>
+            </div>
+        </div>
+
+        <div class="form-container">
+            <div class="form-row">
+                <input type="text" id="taskInput" placeholder="Ingresa una nueva tarea..." maxlength="200">
+                <select id="prioritySelect">
+                    <option value="alta">Alta</option>
+                    <option value="media" selected>Media</option>
+                    <option value="baja">Baja</option>
+                </select>
+                <button onclick="addTask()">Agregar</button>
+            </div>
+        </div>
+
+        <div class="filters">
+            <label>Filtros:</label>
+            <select id="priorityFilter" onchange="loadTasks()">
+                <option value="">Todas las prioridades</option>
+                <option value="alta">Alta</option>
+                <option value="media">Media</option>
+                <option value="baja">Baja</option>
+            </select>
+            <select id="statusFilter" onchange="loadTasks()">
+                <option value="">Todos los estados</option>
+                <option value="false">Pendientes</option>
+                <option value="true">Completadas</option>
+            </select>
+        </div>
+
+        <div class="task-list" id="taskList">
+        </div>
+    </div>
+
+    <script>
+        const sb = window.supabase.createClient('https://ifbtcyxjccfhenxpzuge.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlmYnRjeXhqY2NmaGVueHB6dWdlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODE1NzE3NSwiZXhwIjoyMDkzNzMzMTc1fQ.GVT3CveficB_D8WijOvKXhlpgiEbX8W8cmLSvhcbSeI');
+
+        async function loadTasks() {
+            try {
+                let query = sb.from('tareas').select('*').order('created_at', { ascending: false });
+                
+                const priorityFilter = document.getElementById('priorityFilter').value;
+                const statusFilter = document.getElementById('statusFilter').value;
+                
+                if (priorityFilter) {
+                    query = query.eq('prioridad', priorityFilter);
+                }
+                if (statusFilter !== '') {
+                    query = query.eq('completada', statusFilter === 'true');
+                }
+                
+                const { data, error } = await query;
+                if (error) throw error;
+                
+                displayTasks(data || []);
+                updateStats(data || []);
+            } catch (error) {
+                console.error('Error loading tasks:', error);
+                alert('Error al cargar las tareas');
+            }
+        }
+
+        function displayTasks(tasks) {
+            const taskList = document.getElementById('taskList');
+            
+            if (tasks.length === 0) {
+                taskList.innerHTML = '<p style="text-align: center; color: #666; padding: 40px;">No hay tareas para mostrar</p>';
+                return;
+            }
+            
+            // Ordenar por prioridad y estado
+            const priorityOrder = { 'alta': 1, 'media': 2, 'baja': 3 };
+            tasks.sort((a, b) => {
+                if (a.completada !== b.completada) {
+                    return a.completada - b.completada; // No completadas primero
+                }
+                return priorityOrder[a.prioridad] - priorityOrder[b.prioridad];
+            });
+            
+            taskList.innerHTML = tasks.map(task => `
+                <div class="task-item ${task.completada ? 'completed' : ''}">
+                    <span class="priority-badge priority-${task.prioridad}">${task.prioridad.toUpperCase()}</span>
+                    <span class="task-text">${escapeHtml(task.texto)}</span>
+                    <div class="task-actions">
+                        ${!task.completada ? 
+                            `<button class="btn-sm btn-success" onclick="toggleTask('${task.id}', true)">✓ Completar</button>` :
+                            `<button class="btn-sm" onclick="toggleTask('${task.id}', false)" style="background:#6c757d;color:white;">↶ Pendiente</button>`
+                        }
+                        <button class="btn-sm btn-danger" onclick="deleteTask('${task.id}')">🗑 Eliminar</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function updateStats(tasks) {
+            const total = tasks.length;
+            const completed = tasks.filter(t => t.completada).length;
+            const pending = total - completed;
+            
+            document.getElementById('totalTasks').textContent = total;
+            document.getElementById('completedTasks').textContent = completed;
+            document.getElementById('pendingTasks').textContent = pending;
+        }
+
+        async function addTask() {
+            const taskInput = document.getElementById('taskInput');
+            const prioritySelect = document.getElementById('prioritySelect');
+            
+            const texto = taskInput.value.trim();
+            if (!texto) {
+                alert('Por favor ingresa el texto de la tarea');
+                return;
+            }
+            
+            try {
+                const { error } = await sb.from('tareas').insert([{
+                    texto: texto,
+                    prioridad: prioritySelect.value,
+                    completada: false
+                }]);
+                
+                if (error) throw error;
+                
+                taskInput.value = '';
+                await loadTasks();
+            } catch (error) {
+                console.error('Error adding task:', error);
+                alert('Error al agregar la tarea');
+            }
+        }
+
+        async function toggleTask(id, completed) {
+            try {
+                const { error } = await sb.from('tareas')
+                    .update({ completada: completed })
+                    .eq('id', id);
+                
+                if (error) throw error;
+                await loadTasks();
+            } catch (error) {
+                console.error('Error updating task:', error);
+                alert('Error al actualizar la tarea');
+            }
+        }
+
+        async function deleteTask(id) {
+            if (!confirm('¿Estás seguro de que quieres eliminar esta tarea?')) return;
+            
+            try {
+                const { error } = await sb.from('tareas').delete().eq('id', id);
+                if (error) throw error;
+                await loadTasks();
+            } catch (error) {
+                console.error('Error deleting task:', error);
+                alert('Error al eliminar la tarea');
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Event listeners
+        document.getElementById('taskInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                addTask();
+            }
+        });
+
+        // Cargar tareas al inicio
+        loadTasks();
+    </script>
+</body>
+</html>
